@@ -1,7 +1,13 @@
 name: Build RuntimeInspector
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Vẫn giữ nút bấm tay phòng hờ khi cần
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -28,6 +34,7 @@ jobs:
                 -framework CoreGraphics \
                 -O2 \
                 -Wall \
+                -fobjc-arc \
                 -o RuntimeInspector.dylib \
                 RuntimeInspector.m
 
@@ -37,15 +44,14 @@ jobs:
       - name: Inspect
         run: |
           file RuntimeInspector.dylib
-          echo "--- otool -L ---"
           otool -L RuntimeInspector.dylib
-          echo "--- lipo -info ---"
-          lipo -info RuntimeInspector.dylib || true
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Tạo Release và Upload file thô
+        uses: softprops/action-gh-release@v2
         with:
-          name: RuntimeInspector
-          path: RuntimeInspector.dylib
-          if-no-files-found: error
-          retention-days: 3
+          files: RuntimeInspector.dylib
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
