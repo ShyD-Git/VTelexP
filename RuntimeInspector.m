@@ -1,9 +1,8 @@
 //
 //  RuntimeInspector.m
-//  Version: 1.0
+//  Version: 2.0
 //  Target:  iOS 16.3.1, TrollFools v4.3
 //  Purpose: generic ObjC runtime dumper for dynamic analysis.
-//           No interpose, no substrate, pure reflection.
 //
 
 #import <Foundation/Foundation.h>
@@ -14,21 +13,35 @@
 #import <string.h>
 #import <stdlib.h>
 
-static NSString * const RI_VERSION   = @"[RuntimeInspector] v1.0";
+static NSString * const RI_VERSION   = @"[RuntimeInspector] v2.0";
 static NSString * const RI_DUMP_FILE = @"RuntimeDump.txt";
 
 #pragma mark - Helpers
 
-static NSString *RI_DocsPath(void) {
+static void RI_WriteDump(NSString *content) {
     NSArray<NSString *> *paths =
         NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    return paths.count ? paths.firstObject : nil;
+    NSString *docs = paths.count ? paths.firstObject : nil;
+    NSString *lib = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *tmp = NSTemporaryDirectory();
+
+    NSArray *targets = @[docs ?: @"", lib ?: @"", tmp ?: @""];
+    for (NSString *dir in targets) {
+        if (dir.length == 0) continue;
+        NSString *path = [dir stringByAppendingPathComponent:RI_DUMP_FILE];
+        NSError *err = nil;
+        BOOL ok = [content writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&err];
+        if (ok) {
+            NSLog(@"[RuntimeInspector] v2.0 wrote: %@", path);
+        } else {
+            NSLog(@"[RuntimeInspector] v2.0 failed: %@ (%@)", path, err);
+        }
+    }
 }
 
 static BOOL RI_ClassLooksRelevant(NSString *cls) {
     if (cls.length == 0) return NO;
     NSString *lower = cls.lowercaseString;
-    // Lọc class dựa trên các keyword runtime phổ biến của StoreKit/Foundation
     static NSString * const keys[] = {
         @"purchase", @"subscri", @"unlock", @"paywall",
         @"storekit", @"receipt", @"entitle", @"product",
@@ -39,8 +52,6 @@ static BOOL RI_ClassLooksRelevant(NSString *cls) {
     }
     return NO;
 }
-
-#pragma mark - ObjC Class Dump
 
 static void RI_DumpClass(Class c, NSMutableString *out) {
     [out appendFormat:@"\n=== %s  (super: %s) ===\n",
@@ -108,22 +119,6 @@ static void RI_DumpClass(Class c, NSMutableString *out) {
     }
 }
 
-#pragma mark - Loaded-Image String Scan
-
-static BOOL RI_StringLooksInteresting(NSString *s) {
-    if (s.length < 5 || s.length > 160) return NO;
-    NSString *l = s.lowercaseString;
-    static NSString * const keys[] = {
-        @"premium", @"plus", @"purchase", @"subscri",
-        @"unlock", @"product", @"storekit", @"trial", 
-        @"paywall", @"entitle", @"license"
-    };
-    for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
-        if ([l containsString:keys[i]]) return YES;
-    }
-    return NO;
-}
-
 static void RI_ScanImageStrings(const struct mach_header_64 *mh,
                                 intptr_t slide,
                                 NSMutableSet<NSString *> *seen,
@@ -153,9 +148,16 @@ static void RI_ScanImageStrings(const struct mach_header_64 *mh,
                     size_t len = strnlen(cand, size - k);
                     if (len < 4 || len > 200) { k += len + 1; continue; }
                     NSString *str = [NSString stringWithUTF8String:cand];
-                    if (str && RI_StringLooksInteresting(str) && ![seen containsObject:str]) {
-                        [seen addObject:str];
-                        [out appendFormat:@"  %@\n", str];
+                    if (str && ![seen containsObject:str]) {
+                        NSString *l = str.lowercaseString;
+                        if ([l containsString:@"premium"] || [l containsString:@"plus"] ||
+                            [l containsString:@"purchase"] || [l containsString:@"subscri"] ||
+                            [l containsString:@"unlock"] || [l containsString:@"product"] ||
+                            [l containsString:@"storekit"] || [l containsString:@"trial"] ||
+                            [l containsString:@"paywall"] || [l containsString:@"entitle"]) {
+                            [seen addObject:str];
+                            [out appendFormat:@"  %@\n", str];
+                        }
                     }
                     k += len + 1;
                 }
@@ -165,65 +167,53 @@ static void RI_ScanImageStrings(const struct mach_header_64 *mh,
     }
 }
 
-#pragma mark - Main Dump
-
 static void RI_RunDump(void) {
-    NSMutableString *out = [NSMutableString string];
-    [out appendFormat:@"%@\n", RI_VERSION];
-    [out appendFormat:@"Bundle ID : %@\n", [[NSBundle mainBundle] bundleIdentifier]];
-    [out appendFormat:@"Bundle path: %@\n", [[NSBundle mainBundle] bundlePath]];
-    [out appendFormat:@"Timestamp : %@\n\n", [NSDate date]];
+    @autoreleasepool {
+        NSMutableString *out = [NSMutableString string];
+        [out appendFormat:@"%@\n", RI_VERSION];
+        [out appendFormat:@"Bundle ID : %@\n", [[NSBundle mainBundle] bundleIdentifier]];
+        [out appendFormat:@"Bundle path: %@\n", [[NSBundle mainBundle] bundlePath]];
+        [out appendFormat:@"Timestamp : %@\n\n", [NSDate date]];
 
-    unsigned int classCount = 0;
-    Class *allClasses = objc_copyClassList(&classCount);
-    NSMutableArray<Class> *targets = [NSMutableArray array];
-    for (unsigned int i = 0; i < classCount; i++) {
-        Class c = allClasses[i];
-        NSString *name = NSStringFromClass(c);
-        if (RI_ClassLooksRelevant(name)) [targets addObject:c];
-    }
-    free(allClasses);
+        unsigned int classCount = 0;
+        Class *allClasses = objc_copyClassList(&classCount);
+        NSMutableArray<Class> *targets = [NSMutableArray array];
+        for (unsigned int i = 0; i < classCount; i++) {
+            Class c = allClasses[i];
+            NSString *name = NSStringFromClass(c);
+            if (RI_ClassLooksRelevant(name)) [targets addObject:c];
+        }
+        free(allClasses);
 
-    [out appendFormat:@"--- %lu relevant ObjC classes ---\n", (unsigned long)targets.count];
-    for (Class c in targets) {
-        RI_DumpClass(c, out);
-    }
+        [out appendFormat:@"--- %lu relevant ObjC classes ---\n", (unsigned long)targets.count];
+        for (Class c in targets) {
+            RI_DumpClass(c, out);
+        }
 
-    [out appendString:@"\n--- interesting strings (loaded images) ---\n"];
-    NSMutableSet<NSString *> *seen = [NSMutableSet set];
-    uint32_t imgCount = _dyld_image_count();
-    for (uint32_t i = 0; i < imgCount; i++) {
-        const char *imgName = _dyld_get_image_name(i);
-        if (!imgName) continue;
-        
-        const struct mach_header *hdr = _dyld_get_image_header(i);
-        if (!hdr || hdr->magic != MH_MAGIC_64) continue;
+        [out appendString:@"\n--- interesting strings (loaded images) ---\n"];
+        NSMutableSet<NSString *> *seen = [NSMutableSet set];
+        uint32_t imgCount = _dyld_image_count();
+        for (uint32_t i = 0; i < imgCount; i++) {
+            const char *imgName = _dyld_get_image_name(i);
+            if (!imgName) continue;
+            
+            const struct mach_header *hdr = _dyld_get_image_header(i);
+            if (!hdr || hdr->magic != MH_MAGIC_64) continue;
 
-        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
-        [out appendFormat:@"# %@\n", @(imgName)];
-        RI_ScanImageStrings((const struct mach_header_64 *)hdr, slide, seen, out);
-    }
+            intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+            [out appendFormat:@"# %@\n", @(imgName)];
+            RI_ScanImageStrings((const struct mach_header_64 *)hdr, slide, seen, out);
+        }
 
-    NSString *docs = RI_DocsPath();
-    if (!docs) return;
-    
-    NSString *path = [docs stringByAppendingPathComponent:RI_DUMP_FILE];
-    NSError *err = nil;
-    if ([out writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&err]) {
-        NSLog(@"%@ dump written: %@", RI_VERSION, path);
-    } else {
-        NSLog(@"%@ dump FAILED: %@", RI_VERSION, err);
+        RI_WriteDump(out);
     }
 }
 
-#pragma mark - Constructor
-
 __attribute__((constructor))
 static void RI_Init(void) {
-    NSLog(@"%@ loaded into %@", RI_VERSION, [[NSBundle mainBundle] bundleIdentifier]);
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
+    NSLog(@"[RuntimeInspector] v2.0 loaded into %@", [[NSBundle mainBundle] bundleIdentifier]);
+    // Ghi ngay lập tức không đợi
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         RI_RunDump();
     });
 }
