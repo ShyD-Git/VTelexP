@@ -28,28 +28,28 @@ jobs:
                 -target arm64-apple-ios16.0 \
                 -isysroot "$SDK" \
                 -dynamiclib \
-                -install_name @rpath/RuntimeInspector_v6.dylib \
+                -install_name @rpath/RuntimeInspector_v7.dylib \
                 -framework UIKit \
                 -framework Foundation \
                 -framework CoreGraphics \
                 -O2 \
                 -Wall \
                 -fobjc-arc \
-                -o RuntimeInspector_v6.dylib \
+                -o RuntimeInspector_v7.dylib \
                 RuntimeInspector.m
 
-      - name: Ad-hoc codesign (BẮT BUỘC)
-        run: codesign --force --sign - RuntimeInspector_v6.dylib
+      - name: Ad-hoc codesign
+        run: codesign --force --sign - RuntimeInspector_v7.dylib
 
       - name: Inspect
         run: |
-          file RuntimeInspector_v6.dylib
-          otool -L RuntimeInspector_v6.dylib
+          file RuntimeInspector_v7.dylib
+          otool -L RuntimeInspector_v7.dylib
 
       - name: Tạo Release và Upload file thô
         uses: softprops/action-gh-release@v2
         with:
-          files: RuntimeInspector_v6.dylib
+          files: RuntimeInspector_v7.dylib
           tag_name: build-${{ github.run_number }}
           name: Build ${{ github.run_number }}
           draft: false
