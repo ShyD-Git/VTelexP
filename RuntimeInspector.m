@@ -1,6 +1,6 @@
 //
 //  RuntimeInspector.m
-//  Version: 6.0
+//  Version: 7.0
 //  Target:  iOS 16.3.1, TrollFools v4.3
 //
 
@@ -12,8 +12,9 @@
 #import <string.h>
 #import <stdlib.h>
 
-static NSString * const RI_VERSION   = @"[RuntimeInspector] v6.0";
-static NSString * const RI_DUMP_FILE = @"RuntimeDump_v6.txt";
+static NSString * const RI_VERSION   = @"[RuntimeInspector] v7.0";
+static NSString * const RI_DUMP_FILE = @"RuntimeDump_v7.txt";
+static BOOL hasDumped = NO;
 
 #pragma mark - Helpers
 
@@ -37,7 +38,7 @@ static BOOL RI_ClassLooksRelevant(NSString *cls) {
     static NSString * const keys[] = {
         @"purchase", @"subscri", @"unlock", @"paywall",
         @"storekit", @"receipt", @"entitle", @"product",
-        @"userdefault", @"keychain", @"license", @"trial"
+        @"userdefault", @"keychain", @"license", @"trial", @"viettelex"
     };
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
         if ([lower containsString:keys[i]]) return YES;
@@ -93,47 +94,52 @@ static void RI_RunDump(void) {
         for (Class c in targets) { RI_DumpClass(c, out); }
 
         RI_WriteDump(out);
-        NSLog(@"[RuntimeInspector] v6.0 dumped.");
+        NSLog(@"[RuntimeInspector] v7.0 dumped to file.");
     }
 }
 
-static void RI_ShowAlert(void) {
-    UIWindow *keyWindow = nil;
-    if (@available(iOS 13.0, *)) {
-        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-            if (scene.activationState == UISceneActivationStateForegroundActive && [scene isKindOfClass:[UIWindowScene class]]) {
-                for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-                    if (w.isKeyWindow) { keyWindow = w; break; }
-                }
-            }
-        }
+#pragma mark - Hook UIViewController
+
+static void (*orig_viewDidAppear)(id, SEL, BOOL);
+
+static void my_viewDidAppear(UIViewController *self, SEL _cmd, BOOL animated) {
+    // Gọi lại hàm gốc
+    if (orig_viewDidAppear) {
+        orig_viewDidAppear(self, _cmd, animated);
     }
-    if (!keyWindow) keyWindow = [UIApplication sharedApplication].keyWindow;
-    
-    if (keyWindow && keyWindow.rootViewController) {
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"RuntimeInspector v6.0"
-                                                                       message:@"Dylib đã chạy! File dump đã ghi."
+
+    // Chỉ chạy 1 lần duy nhất khi UI đã sẵn sàng
+    if (!hasDumped) {
+        hasDumped = YES;
+        
+        // Ghi file
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            RI_RunDump();
+        });
+
+        // Hiện Alert báo hiệu thành công
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"RuntimeInspector v7.0"
+                                                                       message:@"Hook thành công! File dump đã ghi vào Documents, Library và tmp."
                                                                 preferredStyle:UIAlertControllerStyleAlert];
         [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        [keyWindow.rootViewController presentViewController:alert animated:YES completion:nil];
+        [self presentViewController:alert animated:YES completion:nil];
     }
 }
+
+#pragma mark - Init
 
 __attribute__((constructor))
 static void RI_Init(void) {
-    NSLog(@"[RuntimeInspector] v6.0 loaded.");
+    NSLog(@"[RuntimeInspector] v7.0 loaded.");
     
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        RI_RunDump();
-    });
+    // Hook viewDidAppear của UIViewController
+    Class cls = [UIViewController class];
+    SEL sel = @selector(viewDidAppear:);
+    Method method = class_getInstanceMethod(cls, sel);
     
-    // Đợi app báo Active hẳn hoi rồi mới show alert
-    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification
-                                                      object:nil
-                                                       queue:[NSOperationQueue mainQueue]
-                                                  usingBlock:^(NSNotification * _Nonnull note) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            RI_ShowAlert();
-        });
-    }];
+    if (method) {
+        orig_viewDidAppear = (void *)method_getImplementation(method);
+        method_setImplementation(method, (IMP)my_viewDidAppear);
+        NSLog(@"[RuntimeInspector] Hooked UIViewController viewDidAppear:");
+    }
 }
