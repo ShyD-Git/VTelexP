@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,4 +48,4 @@ jobs:
           name: RuntimeInspector
           path: RuntimeInspector.dylib
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
