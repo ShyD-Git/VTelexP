@@ -1,6 +1,6 @@
 //
 //  RuntimeInspector.m
-//  Version: 2.0
+//  Version: 3.0
 //  Target:  iOS 16.3.1, TrollFools v4.3
 //  Purpose: generic ObjC runtime dumper for dynamic analysis.
 //
@@ -13,7 +13,7 @@
 #import <string.h>
 #import <stdlib.h>
 
-static NSString * const RI_VERSION   = @"[RuntimeInspector] v2.0";
+static NSString * const RI_VERSION   = @"[RuntimeInspector] v3.0";
 static NSString * const RI_DUMP_FILE = @"RuntimeDump.txt";
 
 #pragma mark - Helpers
@@ -32,9 +32,9 @@ static void RI_WriteDump(NSString *content) {
         NSError *err = nil;
         BOOL ok = [content writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&err];
         if (ok) {
-            NSLog(@"[RuntimeInspector] v2.0 wrote: %@", path);
+            NSLog(@"[RuntimeInspector] v3.0 wrote: %@", path);
         } else {
-            NSLog(@"[RuntimeInspector] v2.0 failed: %@ (%@)", path, err);
+            NSLog(@"[RuntimeInspector] v3.0 failed: %@ (%@)", path, err);
         }
     }
 }
@@ -211,9 +211,29 @@ static void RI_RunDump(void) {
 
 __attribute__((constructor))
 static void RI_Init(void) {
-    NSLog(@"[RuntimeInspector] v2.0 loaded into %@", [[NSBundle mainBundle] bundleIdentifier]);
-    // Ghi ngay lập tức không đợi
+    NSLog(@"[RuntimeInspector] v3.0 loaded into %@", [[NSBundle mainBundle] bundleIdentifier]);
+    
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         RI_RunDump();
+        
+        // Hiển thị thông báo chứng minh dylib đã load
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"RuntimeInspector v3.0"
+                                                                           message:@"Dylib đã chạy! File dump đã được ghi vào Documents, Library và tmp."
+                                                                    preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            
+            UIWindow *window = nil;
+            for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]]) {
+                    for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                        if (w.isKeyWindow) { window = w; break; }
+                    }
+                }
+            }
+            if (window && window.rootViewController) {
+                [window.rootViewController presentViewController:alert animated:YES completion:nil];
+            }
+        });
     });
 }
