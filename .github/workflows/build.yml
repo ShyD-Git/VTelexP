@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # Vẫn giữ nút bấm tay phòng hờ khi cần
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -37,9 +37,6 @@ jobs:
                 -fobjc-arc \
                 -o RuntimeInspector.dylib \
                 RuntimeInspector.m
-
-      - name: Ad-hoc codesign
-        run: codesign --force --sign - RuntimeInspector.dylib
 
       - name: Inspect
         run: |
